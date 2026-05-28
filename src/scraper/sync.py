@@ -195,23 +195,26 @@ class LetterboxdSync:
 
             films_to_update.add(film.id)
 
+            watched_date = None
+            if entry_data.get("date"):
+                try:
+                    watched_date = datetime.strptime(entry_data["date"], "%Y-%m-%d")
+                except (ValueError, TypeError):
+                    pass
+
             existing = db.query(DiaryEntry).filter(
                 DiaryEntry.letterboxd_id == entry_id
             ).first()
 
             if existing:
+                # Backfill watched_date too: entries synced before the diary
+                # date-format fix were stored with watched_date = NULL.
+                existing.watched_date = watched_date
                 existing.rating = entry_data.get("rating")
                 existing.rewatch = entry_data.get("rewatch", False)
                 existing.liked = entry_data.get("liked", False)
                 existing.updated_at = datetime.utcnow()
             else:
-                watched_date = None
-                if entry_data.get("date"):
-                    try:
-                        watched_date = datetime.strptime(entry_data["date"], "%Y-%m-%d")
-                    except (ValueError, TypeError):
-                        pass
-
                 entry = DiaryEntry(
                     user_id=user.id,
                     film_id=film.id,
