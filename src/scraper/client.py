@@ -153,10 +153,15 @@ class LetterboxdClient:
                 if not isinstance(data, dict):
                     continue
                 actions = data.get("actions", {})
-                date_info = data.get("date", {})
+                date_info = data.get("date")
 
                 date_str = None
-                if isinstance(date_info, dict) and date_info.get("year"):
+                if isinstance(date_info, str) and date_info:
+                    # letterboxdpy >=6.5 returns an ISO 8601 string
+                    # e.g. "2026-05-26T00:00:00.000000Z" -> "2026-05-26"
+                    date_str = date_info[:10]
+                elif isinstance(date_info, dict) and date_info.get("year"):
+                    # legacy dict format {year, month, day}
                     date_str = f"{date_info['year']}-{date_info.get('month', 1):02d}-{date_info.get('day', 1):02d}"
 
                 rating = actions.get("rating")
