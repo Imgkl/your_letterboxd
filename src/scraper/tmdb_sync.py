@@ -83,7 +83,11 @@ class TmdbSync:
             for i, film in enumerate(films):
                 if (i + 1) % 10 == 0:
                     logger.info(f"Progress: {i + 1}/{stats['films_to_enrich']} films processed")
-                    db.commit()
+                    try:
+                        db.commit()
+                    except Exception as e:
+                        db.rollback()
+                        logger.error(f"Batch commit failed at film {i + 1}, rolled back: {e}")
 
                 result = self._enrich_film(db, film, force)
                 if result == "enriched":
@@ -103,7 +107,12 @@ class TmdbSync:
             sync_log.error_message = str(e)
             stats["errors"].append(str(e))
 
-        db.commit()
+        try:
+            db.commit()
+        except Exception as e:
+            db.rollback()
+            logger.error(f"Final TMDB sync commit failed, rolled back: {e}")
+            stats["errors"].append(str(e))
 
         logger.info(f"TMDB sync complete: {stats['films_enriched']} enriched, {stats['films_failed']} failed")
         return stats
@@ -129,6 +138,19 @@ class TmdbSync:
         except (ValueError, TypeError):
             logger.error(f"Invalid tmdb_id for film {film.slug}: {film.tmdb_id}")
             return "failed"
+
+        # tmdb_id is globally unique in tmdb_films, but Letterboxd can have multiple
+        # slugs mapping to the same TMDB movie. On the INSERT path (no row for this
+        # film_id), skip if another film already enriched this tmdb_id to avoid a
+        # UNIQUE constraint violation.
+        if not existing:
+            dup = db.query(TmdbFilm).filter(TmdbFilm.tmdb_id == tmdb_id).first()
+            if dup:
+                logger.info(
+                    f"Skipping {film.slug}: tmdb_id={tmdb_id} already enriched "
+                    f"via film_id={dup.film_id} (Letterboxd duplicate)"
+                )
+                return "skipped"
 
         try:
             data = self.client.get_movie(tmdb_id)
